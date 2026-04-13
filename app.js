@@ -16,6 +16,10 @@ const App = (() => {
   let dossierId = null;   // current dossier detail
   let reportDosId = null; // current report dossier
   let sigCanvas, sigCtx, sigDrawing = false;
+  let calView = 'month'; // 'month' | 'week' | 'day' | 'list'
+  let calDate = new Date(); // current calendar focus date
+  let calFilterPoseur = null; // null = all
+  let calNowInterval = null;
 
   /* =============================================================
      UTILS
@@ -284,9 +288,133 @@ const App = (() => {
   }
 
   /* =============================================================
-     ACTIVITÉS
+     ACTIVITÉS + CALENDRIER
      ============================================================= */
+
+  /* ---- Filtered activities helper ---- */
+  function filterActs(key) {
+    const now = new Date(NOW.toDateString());
+    let list = ACTIVITIES;
+    if (!isMag() && user.poseurId) list = list.filter(a => a.poseurId === user.poseurId);
+    switch (key) {
+      case 'planned': return list.filter(a => a.status !== 'done' && a.type !== 'SAV' && new Date(a.slot.start) >= now);
+      case 'to-plan': return list.filter(a => a.status === 'pending');
+      case 'sav': return list.filter(a => a.type === 'SAV' && a.status !== 'done');
+      case 'done': return list.filter(a => a.status === 'done');
+      default: return list;
+    }
+  }
+  function setSubTab(key) { subTab = key; renderActivities(); }
+
+  /* Activities for a date, with poseur filter */
+  function actsForDate(date) {
+    let list = ACTIVITIES;
+    if (!isMag() && user.poseurId) list = list.filter(a => a.poseurId === user.poseurId);
+    if (calFilterPoseur) list = list.filter(a => a.poseurId === calFilterPoseur);
+    return list.filter(a => {
+      const d = new Date(a.slot.start);
+      return d.getFullYear() === date.getFullYear() && d.getMonth() === date.getMonth() && d.getDate() === date.getDate();
+    });
+  }
+
+  function actClass(a) { return a.status === 'urgent' ? 'urgent' : a.type.toLowerCase(); }
+
+  /* ---- Main render ---- */
   function renderActivities() {
+    // Update urgent badge
+    const urgentN = ACTIVITIES.filter(a => a.status === 'urgent').length;
+    const badge = $('navBadge');
+    if (badge) { badge.textContent = urgentN; badge.classList.toggle('show', urgentN > 0); }
+
+    let html = renderCalToolbar();
+
+    // Poseur filter (magasin only)
+    if (isMag()) {
+      html += `<div class="cal-poseur-filter">
+        <button class="cal-pf-btn${!calFilterPoseur ? ' on' : ''}" onclick="App.setCalFilter(null)">Tous</button>
+        ${POSEURS.filter(p => p.actif).map(p =>
+          `<button class="cal-pf-btn${calFilterPoseur === p.id ? ' on' : ''}" onclick="App.setCalFilter(${p.id})"><span class="cal-pf-dot" style="background:${p.couleur}"></span>${p.prenom}</button>`
+        ).join('')}
+      </div>`;
+    }
+
+    if (calView === 'list') html += renderListView();
+    else if (calView === 'month') html += renderMonthView();
+    else if (calView === 'week') html += renderWeekView();
+    else if (calView === 'day') html += renderDayView();
+
+    $('pgActivities').innerHTML = html;
+
+    // Start now-line updater for week/day views
+    clearInterval(calNowInterval);
+    if (calView === 'week' || calView === 'day') {
+      updateNowLine();
+      calNowInterval = setInterval(updateNowLine, 60000);
+    }
+  }
+
+  /* ---- Calendar toolbar ---- */
+  function renderCalToolbar() {
+    const MOIS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const JOURS_COURT = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+    let title = '';
+    if (calView === 'month') title = `${MOIS[calDate.getMonth()]} ${calDate.getFullYear()}`;
+    else if (calView === 'week') {
+      const ws = weekStart(calDate);
+      const we = new Date(ws); we.setDate(we.getDate() + 6);
+      title = `${ws.getDate()} ${MOIS[ws.getMonth()].slice(0,3)} — ${we.getDate()} ${MOIS[we.getMonth()].slice(0,3)}`;
+    } else if (calView === 'day') {
+      title = `${JOURS_COURT[calDate.getDay()]} ${calDate.getDate()} ${MOIS[calDate.getMonth()]}`;
+    } else {
+      title = 'Activités';
+    }
+    return `<div class="cal-toolbar">
+      <div class="cal-nav-group">
+        <button class="cal-nav-btn" onclick="App.calPrev()"><i class="ph ph-caret-left"></i></button>
+        <button class="cal-today-btn" onclick="App.calToday()">Auj.</button>
+        <button class="cal-nav-btn" onclick="App.calNext()"><i class="ph ph-caret-right"></i></button>
+      </div>
+      <span class="cal-title">${title}</span>
+      <div class="cal-views">
+        ${['list','month','week','day'].map(v => {
+          const labels = { list:'☰', month:'Mois', week:'Sem.', day:'Jour' };
+          return `<button class="cal-view-btn${calView === v ? ' on' : ''}" onclick="App.setCalView('${v}')">${labels[v]}</button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  /* Navigation */
+  function calPrev() {
+    if (calView === 'month') calDate.setMonth(calDate.getMonth() - 1);
+    else if (calView === 'week') calDate.setDate(calDate.getDate() - 7);
+    else if (calView === 'day') calDate.setDate(calDate.getDate() - 1);
+    renderActivities();
+  }
+  function calNext() {
+    if (calView === 'month') calDate.setMonth(calDate.getMonth() + 1);
+    else if (calView === 'week') calDate.setDate(calDate.getDate() + 7);
+    else if (calView === 'day') calDate.setDate(calDate.getDate() + 1);
+    renderActivities();
+  }
+  function calToday() { calDate = new Date(); renderActivities(); }
+  function setCalView(v) { calView = v; renderActivities(); }
+  function setCalFilter(id) { calFilterPoseur = id; renderActivities(); }
+
+  /* ---- Helper: Monday of the week ---- */
+  function weekStart(d) {
+    const dt = new Date(d);
+    const day = dt.getDay();
+    const diff = (day === 0 ? -6 : 1) - day;
+    dt.setDate(dt.getDate() + diff);
+    dt.setHours(0,0,0,0);
+    return dt;
+  }
+
+  /* =============================================================
+     LIST VIEW (old activities view)
+     ============================================================= */
+  function renderListView() {
     const tabs = [
       { key: 'planned', label: 'Planifiées' },
       { key: 'to-plan', label: 'À planifier' },
@@ -301,10 +429,6 @@ const App = (() => {
     ).join('')}</div>`;
 
     const acts = filterActs(subTab);
-    const urgentN = ACTIVITIES.filter(a => a.status === 'urgent').length;
-    const badge = $('navBadge');
-    if (badge) { badge.textContent = urgentN; badge.classList.toggle('show', urgentN > 0); }
-
     if (!acts.length) {
       html += '<div class="empty"><i class="ph ph-clipboard"></i><p>Aucune activité</p></div>';
     } else {
@@ -329,23 +453,283 @@ const App = (() => {
         </div>`;
       });
     }
-    $('pgActivities').innerHTML = html;
+    return html;
   }
 
-  function filterActs(key) {
-    const now = new Date(NOW.toDateString());
-    let list = ACTIVITIES;
-    if (!isMag() && user.poseurId) list = list.filter(a => a.poseurId === user.poseurId);
-    switch (key) {
-      case 'planned': return list.filter(a => a.status !== 'done' && a.type !== 'SAV' && new Date(a.slot.start) >= now);
-      case 'to-plan': return list.filter(a => a.status === 'pending');
-      case 'sav': return list.filter(a => a.type === 'SAV' && a.status !== 'done');
-      case 'done': return list.filter(a => a.status === 'done');
-      default: return list;
+  /* =============================================================
+     MONTH VIEW
+     ============================================================= */
+  function renderMonthView() {
+    const year = calDate.getFullYear(), month = calDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    let startOff = (firstDay.getDay() + 6) % 7; // Monday=0
+    const todayStr = new Date().toDateString();
+
+    let html = `<div class="cal-month-weekdays"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>`;
+    html += '<div class="cal-month-grid">';
+
+    // Previous month days
+    const prevLast = new Date(year, month, 0).getDate();
+    for (let i = startOff - 1; i >= 0; i--) {
+      const d = new Date(year, month - 1, prevLast - i);
+      html += renderMonthCell(d, true, todayStr);
     }
+    // Current month
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+      const d = new Date(year, month, day);
+      html += renderMonthCell(d, false, todayStr);
+    }
+    // Next month fill
+    const total = startOff + lastDay.getDate();
+    const rem = (7 - (total % 7)) % 7;
+    for (let i = 1; i <= rem; i++) {
+      const d = new Date(year, month + 1, i);
+      html += renderMonthCell(d, true, todayStr);
+    }
+    html += '</div>';
+    return html;
   }
 
-  function setSubTab(key) { subTab = key; renderActivities(); }
+  function renderMonthCell(date, isOther, todayStr) {
+    const isToday = date.toDateString() === todayStr;
+    const acts = actsForDate(date);
+    const cls = `cal-day-cell${isOther ? ' other' : ''}${isToday ? ' today' : ''}`;
+    const dateISO = date.toISOString();
+
+    let inner = `<div class="cal-day-num">${date.getDate()}</div>`;
+    const show = acts.slice(0, 2);
+    show.forEach(a => {
+      inner += `<div class="cal-day-evt ${actClass(a)}">${a.client.lastName}</div>`;
+    });
+    if (acts.length > 2) inner += `<div class="cal-day-more">+${acts.length - 2}</div>`;
+
+    return `<div class="${cls}" onclick="App.openDayPanel('${dateISO}')">${inner}</div>`;
+  }
+
+  /* =============================================================
+     WEEK VIEW
+     ============================================================= */
+  function renderWeekView() {
+    const ws = weekStart(calDate);
+    const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+    const todayStr = new Date().toDateString();
+    // On mobile show 3 days, else 7
+    const isMobile = window.innerWidth <= 480;
+    const numDays = isMobile ? 3 : 7;
+    // On mobile, center on calDate
+    let startDate;
+    if (isMobile) {
+      startDate = new Date(calDate);
+      startDate.setDate(startDate.getDate() - 1);
+      startDate.setHours(0,0,0,0);
+    } else {
+      startDate = ws;
+    }
+
+    const days = [];
+    for (let i = 0; i < numDays; i++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      days.push(d);
+    }
+
+    const HOURS_START = 7, HOURS_END = 20;
+    const hourCount = HOURS_END - HOURS_START;
+    const colW = `${100 / (numDays + 1)}%`;
+    const labelW = '38px';
+
+    // Header
+    let html = `<div class="cal-week-wrap" id="calWeekWrap">`;
+    html += `<div class="cal-week-header" style="grid-template-columns:${labelW} repeat(${numDays},1fr)">`;
+    html += `<div class="wh-cell"></div>`;
+    days.forEach((d, i) => {
+      const isT = d.toDateString() === todayStr;
+      const dayName = JOURS[(d.getDay() + 6) % 7];
+      html += `<div class="wh-cell${isT ? ' today' : ''}" onclick="App.calGoDay('${d.toISOString()}')">${dayName}<span class="wh-num">${d.getDate()}</span></div>`;
+    });
+    html += '</div>';
+
+    // Body grid
+    html += `<div class="cal-week-body" style="grid-template-columns:${labelW} repeat(${numDays},1fr);position:relative">`;
+
+    // Hour labels + rows
+    for (let h = HOURS_START; h < HOURS_END; h++) {
+      html += `<div class="cal-hour-label" style="grid-row:${h - HOURS_START + 1}">${String(h).padStart(2,'0')}h</div>`;
+      for (let c = 0; c < numDays; c++) {
+        const d = days[c];
+        const clickDate = new Date(d);
+        clickDate.setHours(h, 0, 0, 0);
+        html += `<div class="cal-hour-row" style="grid-row:${h - HOURS_START + 1};grid-column:${c + 2}" ${isMag() ? `onclick="App.openNewActivityAt('${clickDate.toISOString()}')"` : ''}></div>`;
+      }
+    }
+
+    // Activity blocks
+    days.forEach((d, colIdx) => {
+      const dayActs = actsForDate(d);
+      // Detect overlaps
+      const placed = [];
+      dayActs.forEach(a => {
+        const s = new Date(a.slot.start);
+        const e = new Date(a.slot.end);
+        const top = Math.max(0, (s.getHours() + s.getMinutes() / 60 - HOURS_START)) * 60;
+        const bot = Math.min(hourCount, (e.getHours() + e.getMinutes() / 60 - HOURS_START)) * 60;
+        const height = Math.max(bot - top, 20);
+        // Check overlap
+        let isOverlap = false, isSecond = false;
+        placed.forEach(p => {
+          if (top < p.bot && bot > p.top) { isOverlap = true; if (top >= p.top) isSecond = true; }
+        });
+        placed.push({ top, bot, id: a.id });
+
+        const halfCls = isOverlap ? ` half${isSecond ? ' second' : ''}` : '';
+        const rapportBtn = (!isMag() && a.dossierId) ? `<span class="wb-rapport">📋 Rapport</span>` : '';
+
+        html += `<div class="cal-week-block ${actClass(a)}${halfCls}" style="top:${top}px;height:${height}px;grid-column:${colIdx + 2}" onclick="App.openActDetail(${a.id})">
+          <div class="wb-client">${a.client.lastName}</div>
+          <div class="wb-time">${fmtTime(a.slot.start)}→${fmtTime(a.slot.end)}</div>
+          ${rapportBtn}
+          <div class="wb-poseur" style="background:${poseurColor(a.poseurId)}">${poseurInitials(a.poseurId)}</div>
+        </div>`;
+      });
+    });
+
+    // Now line
+    html += `<div class="cal-now-line" id="calNowLine" style="display:none"></div>`;
+    html += '</div></div>';
+    return html;
+  }
+
+  /* =============================================================
+     DAY VIEW
+     ============================================================= */
+  function renderDayView() {
+    const HOURS_START = 7, HOURS_END = 20;
+    const hourCount = HOURS_END - HOURS_START;
+    const dayActs = actsForDate(calDate);
+    const todayStr = new Date().toDateString();
+    const isToday = calDate.toDateString() === todayStr;
+
+    // Summary
+    const poses = dayActs.filter(a => a.type === 'Pose').length;
+    const savs = dayActs.filter(a => a.type === 'SAV').length;
+    const livs = dayActs.filter(a => a.type === 'Livraison').length;
+    const poseursSet = new Set(dayActs.map(a => a.poseurId));
+
+    let html = `<div class="cal-day-summary">
+      <span><span class="cal-pf-dot" style="background:var(--info)"></span>${poses} pose(s)</span>
+      <span><span class="cal-pf-dot" style="background:var(--warning)"></span>${savs} SAV</span>
+      <span><span class="cal-pf-dot" style="background:var(--success)"></span>${livs} livr.</span>
+      <span><i class="ph ph-users" style="font-size:13px"></i> ${poseursSet.size} poseur(s)</span>
+    </div>`;
+
+    html += `<div class="cal-day-wrap" id="calDayWrap" style="height:${hourCount * 60 + 20}px">`;
+
+    // Hour lines
+    for (let h = HOURS_START; h < HOURS_END; h++) {
+      const top = (h - HOURS_START) * 60;
+      html += `<div class="cal-day-hour" style="top:${top}px">${String(h).padStart(2,'0')}h</div>`;
+      html += `<div style="position:absolute;left:42px;right:0;top:${top}px;height:60px;border-bottom:1px solid #f0f0f0;border-left:1px solid var(--border)" ${isMag() ? `onclick="App.openNewActivityAt('${new Date(calDate.getFullYear(),calDate.getMonth(),calDate.getDate(),h).toISOString()}')"` : ''}></div>`;
+    }
+
+    // Activity blocks
+    const placed = [];
+    dayActs.forEach(a => {
+      const s = new Date(a.slot.start);
+      const e = new Date(a.slot.end);
+      const top = Math.max(0, (s.getHours() + s.getMinutes() / 60 - HOURS_START)) * 60;
+      const bot = Math.min(hourCount, (e.getHours() + e.getMinutes() / 60 - HOURS_START)) * 60;
+      const height = Math.max(bot - top, 40);
+      let isOverlap = false, isSecond = false;
+      placed.forEach(p => {
+        if (top < p.bot && bot > p.top) { isOverlap = true; if (top >= p.top) isSecond = true; }
+      });
+      placed.push({ top, bot });
+
+      const style = `top:${top}px;height:${height}px;${isOverlap ? `width:48%;${isSecond ? 'left:52%' : 'left:46px'}` : ''}`;
+
+      html += `<div class="cal-day-block ${actClass(a)}" style="${style}" onclick="App.openActDetail(${a.id})">
+        <div class="db-client">${a.client.lastName} ${a.client.firstName}</div>
+        <div class="db-addr">${a.client.address}, ${a.client.city}</div>
+        <div class="db-time"><i class="ph ph-clock"></i> ${fmtTime(a.slot.start)} → ${fmtTime(a.slot.end)}</div>
+        <div class="db-poseur"><div class="poseur-av" style="background:${poseurColor(a.poseurId)};width:18px;height:18px;font-size:8px">${poseurInitials(a.poseurId)}</div> ${poseurName(a.poseurId)}</div>
+        <div class="db-status"><span class="dot ${statusDot(a.status)}"></span>${statusLabel(a.status)}</div>
+        ${a.dossierId ? `<div class="db-actions"><button onclick="event.stopPropagation();App.openDossier(${a.dossierId})">📁 Dossier</button>${!isMag() ? `<button onclick="event.stopPropagation();App.openReport(${a.dossierId})">📋 Rapport</button>` : ''}</div>` : ''}
+      </div>`;
+    });
+
+    // Now line
+    if (isToday) html += `<div class="cal-now-line" id="calNowLine" style="left:42px;display:none"></div>`;
+    html += '</div>';
+    return html;
+  }
+
+  /* Now line updater */
+  function updateNowLine() {
+    const el = document.getElementById('calNowLine');
+    if (!el) return;
+    const now = new Date();
+    const top = (now.getHours() + now.getMinutes() / 60 - 7) * 60;
+    if (top < 0 || top > 13 * 60) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.style.top = top + 'px';
+  }
+
+  /* Go to day from week header click */
+  function calGoDay(iso) { calDate = new Date(iso); calView = 'day'; renderActivities(); }
+
+  /* =============================================================
+     SIDE PANEL (month day click)
+     ============================================================= */
+  function openDayPanel(iso) {
+    const date = new Date(iso);
+    const acts = actsForDate(date);
+    $('sidePanelTitle').textContent = fmtDate(date);
+
+    let html = '';
+    if (!acts.length) {
+      html = '<div class="empty" style="padding:24px"><p>Aucune activité ce jour</p></div>';
+    } else {
+      acts.forEach(a => {
+        const bc = a.type === 'Pose' ? 'badge-pose' : a.type === 'SAV' ? 'badge-sav' : 'badge-livraison';
+        html += `<div class="card" onclick="App.closeSide();App.openActDetail(${a.id})">
+          <div class="card-header">
+            <span class="badge ${bc}">${a.type}</span>
+            <span class="status-txt"><span class="dot ${statusDot(a.status)}"></span>${statusLabel(a.status)}</span>
+          </div>
+          <div style="font-weight:600;font-size:13px">${a.client.lastName} ${a.client.firstName}</div>
+          <div class="slot"><i class="ph ph-clock"></i>${fmtTime(a.slot.start)} → ${fmtTime(a.slot.end)}</div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-light)">
+            <div class="poseur-av" style="background:${poseurColor(a.poseurId)};width:18px;height:18px;font-size:8px">${poseurInitials(a.poseurId)}</div>
+            ${poseurName(a.poseurId)}
+          </div>
+          ${a.dossierId ? `<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="event.stopPropagation();App.closeSide();App.openDossier(${a.dossierId})"><i class="ph ph-folder-open"></i> Dossier</button>` : ''}
+        </div>`;
+      });
+    }
+    if (isMag()) {
+      const clickDate = new Date(date); clickDate.setHours(8, 0, 0, 0);
+      html += `<button class="btn btn-accent btn-sm" style="margin-top:8px" onclick="App.closeSide();App.openNewActivityAt('${clickDate.toISOString()}')"><i class="ph ph-plus-circle"></i> Ajouter une activité</button>`;
+    }
+    $('sidePanelContent').innerHTML = html;
+    $('sideOverlay').classList.add('on');
+    $('sidePanel').classList.add('on');
+  }
+
+  function closeSide() {
+    $('sideOverlay').classList.remove('on');
+    $('sidePanel').classList.remove('on');
+  }
+
+  /* =============================================================
+     NEW ACTIVITY AT specific time (calendar click)
+     ============================================================= */
+  function openNewActivityAt(iso) {
+    if (!isMag()) return;
+    const dt = new Date(iso);
+    // Pre-fill date and time in the new activity modal
+    openNewActivity(dt);
+  }
 
   function openActDetail(id) {
     const a = ACTIVITIES.find(x => x.id === id); if (!a) return;
@@ -391,23 +775,55 @@ const App = (() => {
   }
 
   /* New activity */
-  function openNewActivity() {
+  function openNewActivity(prefillDate) {
     const poseursOpts = POSEURS.filter(p => p.actif).map(p => `<option value="${p.id}">${p.prenom} ${p.nom}</option>`).join('');
+    const dossierOpts = DOSSIERS.map(d => `<option value="${d.id}">${d.num} — ${d.client.lastName}</option>`).join('');
+    const dateVal = prefillDate ? prefillDate.toISOString().slice(0, 10) : '';
+    const startVal = prefillDate ? `${String(prefillDate.getHours()).padStart(2,'0')}:${String(prefillDate.getMinutes()).padStart(2,'0')}` : '08:00';
+    const endH = prefillDate ? Math.min(prefillDate.getHours() + 2, 20) : 17;
+    const endVal = prefillDate ? `${String(endH).padStart(2,'0')}:00` : '17:00';
+
     const html = `
       <h2 class="modal-title">Nouvelle activité</h2>
-      <div class="form-group"><label class="form-label">Type</label><select class="form-input" id="naType"><option>Pose</option><option>SAV</option><option>Livraison</option></select></div>
+      <div class="form-group"><label class="form-label">Type</label>
+        <div class="radio-group" style="flex-direction:row;gap:6px">
+          <div class="radio-opt sel" onclick="App._setRadioType(this,'Pose')" data-val="Pose" style="flex:1;justify-content:center;padding:10px 6px;border-color:var(--info)"><span style="color:var(--info);font-weight:700">🔧 Pose</span></div>
+          <div class="radio-opt" onclick="App._setRadioType(this,'SAV')" data-val="SAV" style="flex:1;justify-content:center;padding:10px 6px"><span style="color:var(--warning);font-weight:700">🛠 SAV</span></div>
+          <div class="radio-opt" onclick="App._setRadioType(this,'Livraison')" data-val="Livraison" style="flex:1;justify-content:center;padding:10px 6px"><span style="color:var(--success);font-weight:700">🚚 Livr.</span></div>
+        </div>
+        <input type="hidden" id="naType" value="Pose">
+      </div>
+      <div class="form-group"><label class="form-label">Dossier client (optionnel)</label><select class="form-input" id="naDossier"><option value="">— Aucun —</option>${dossierOpts}</select></div>
       <div class="form-group"><label class="form-label">Poseur</label><select class="form-input" id="naPoseur">${poseursOpts}</select></div>
       <div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="naLn" placeholder="NOM"></div>
       <div class="form-group"><label class="form-label">Prénom</label><input class="form-input" id="naFn" placeholder="Prénom"></div>
       <div class="form-group"><label class="form-label">Téléphone</label><input class="form-input" id="naPh" placeholder="+32..."></div>
       <div class="form-group"><label class="form-label">Adresse</label><input class="form-input" id="naAddr"></div>
       <div class="form-group"><label class="form-label">Ville</label><input class="form-input" id="naCity"></div>
-      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="naDate" type="date"></div>
-      <div class="form-group"><label class="form-label">Début</label><input class="form-input" id="naStart" type="time" value="08:00"></div>
-      <div class="form-group"><label class="form-label">Fin</label><input class="form-input" id="naEnd" type="time" value="17:00"></div>
+      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="naDate" type="date" value="${dateVal}"></div>
+      <div class="form-group"><label class="form-label">Début</label><input class="form-input" id="naStart" type="time" value="${startVal}"></div>
+      <div class="form-group"><label class="form-label">Fin</label><input class="form-input" id="naEnd" type="time" value="${endVal}"></div>
       <div class="form-group"><label class="form-label">Notes</label><textarea class="form-input" id="naNotes"></textarea></div>
-      <button class="btn btn-accent" onclick="App.createActivity()"><i class="ph ph-plus-circle"></i> Créer</button>`;
+      <button class="btn btn-accent" onclick="App.createActivity()"><i class="ph ph-plus-circle"></i> Créer l'activité</button>`;
     openOv('ovModal', html);
+
+    // Auto-fill from dossier selection
+    $('naDossier').onchange = function() {
+      const dos = DOSSIERS.find(d => d.id === +this.value);
+      if (dos) {
+        $('naLn').value = dos.client.lastName;
+        $('naFn').value = dos.client.firstName;
+        $('naPh').value = dos.client.phone;
+        $('naAddr').value = dos.client.address;
+        $('naCity').value = dos.client.city;
+      }
+    };
+  }
+
+  function _setRadioType(el, val) {
+    el.parentElement.querySelectorAll('.radio-opt').forEach(o => o.classList.remove('sel'));
+    el.classList.add('sel');
+    $('naType').value = val;
   }
 
   function createActivity() {
@@ -418,23 +834,38 @@ const App = (() => {
     const d = new Date(dt);
     const start = new Date(d); start.setHours(sh, sm, 0, 0);
     const end = new Date(d); end.setHours(eh, em, 0, 0);
-    ACTIVITIES.push({
-      id: Date.now(), type: $('naType').value, status: 'pending', dossierId: null,
+    const dosId = $('naDossier') && $('naDossier').value ? +$('naDossier').value : null;
+    const newAct = {
+      id: Date.now(), type: $('naType').value, status: 'pending', dossierId: dosId,
       poseurId: +$('naPoseur').value,
       client: { firstName: fn, lastName: ln.toUpperCase(), phone: $('naPh').value, address: $('naAddr').value, city: $('naCity').value },
       slot: { start: start.toISOString(), end: end.toISOString() },
       notes: $('naNotes').value
-    });
+    };
+    ACTIVITIES.push(newAct);
     save(); closeOv('ovModal'); renderActivities();
     showToast('Activité créée');
+
+    // Send email notifications
+    const dos = dosId ? DOSSIERS.find(x => x.id === dosId) : null;
+    sendNotification('new_activity', {
+      activite: newAct,
+      poseur: POSEURS.find(p => p.id === newAct.poseurId),
+      client: newAct.client,
+      clientEmail: dos ? dos.client.email : '',
+      dossierNum: dos ? dos.num : ''
+    });
   }
 
   /* =============================================================
      DOSSIERS
      ============================================================= */
   function renderDossiersList() {
-    let html = '<div class="sec-title" style="margin-top:12px">Tous les dossiers</div>';
-    DOSSIERS.forEach(d => {
+    // Poseur ne voit que ses dossiers assignés
+    const list = isMag() ? DOSSIERS : DOSSIERS.filter(d => d.poseurId === user.poseurId);
+    let html = `<div class="sec-title" style="margin-top:12px">${isMag() ? 'Tous les dossiers' : 'Mes dossiers'}</div>`;
+    if (!list.length) { html += '<div class="empty"><i class="ph ph-folder-open"></i><p>Aucun dossier assigné</p></div>'; }
+    list.forEach(d => {
       const st = { done: 'Terminé', in_progress: 'En cours', sav_pending: 'SAV en attente' }[d.status] || d.status;
       html += `<div class="card" onclick="App.openDossier(${d.id})">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -517,13 +948,22 @@ const App = (() => {
     if (isMag()) html += `<button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="App.addElectro(${d.id})"><i class="ph ph-plus-circle"></i> Ajouter</button>`;
     html += `</div>`;
 
-    // Accès rapport
-    html += `<div style="display:flex;flex-direction:column;gap:6px;margin:10px 0 20px">
+    // Accès rapport — toujours visible pour les deux rôles
+    html += `<div style="display:flex;flex-direction:column;gap:6px;margin:10px 0 8px">
       ${d.report.status === 'submitted'
-        ? `<button class="btn btn-primary btn-sm" onclick="App.openReportView(${d.id})"><i class="ph ph-file-text"></i> Voir le rapport</button>`
+        ? `<button class="btn btn-primary btn-sm" onclick="App.openReportView(${d.id})"><i class="ph ph-file-text"></i> Voir le rapport final</button>`
         : `<button class="btn btn-accent btn-sm" onclick="App.openReport(${d.id})"><i class="ph ph-note-pencil"></i> ${isMag() ? 'Voir le rapport' : 'Compléter le rapport'}</button>`
       }
     </div>`;
+
+    // Bouton flottant proéminent pour le poseur (rapport non soumis)
+    if (!isMag() && d.report.status !== 'submitted') {
+      html += `<div style="position:sticky;bottom:calc(var(--nav-h) + 10px);z-index:40;margin:8px 0 20px">
+        <button class="btn btn-accent" style="padding:16px;font-size:15px;box-shadow:var(--shadow-md);border-radius:var(--radius-lg)" onclick="App.openReport(${d.id})">
+          <i class="ph ph-clipboard-text"></i> 📋 Remplir le rapport de pose
+        </button>
+      </div>`;
+    }
 
     $('pgDossierDetail').innerHTML = html;
   }
@@ -636,7 +1076,43 @@ const App = (() => {
   function renderRapport() {
     const d = DOSSIERS.find(x => x.id === reportDosId);
     if (!d) {
-      $('pgRapport').innerHTML = '<div class="empty" style="margin-top:36px"><i class="ph ph-note-pencil"></i><p>Sélectionnez un dossier pour compléter un rapport.</p></div>';
+      // Auto-sélectionner un dossier si poseur n'en a qu'un en cours
+      const myDossiers = isMag() ? DOSSIERS : DOSSIERS.filter(x => x.poseurId === user.poseurId);
+      const drafts = myDossiers.filter(x => x.report.status !== 'submitted');
+      if (drafts.length === 1) {
+        reportDosId = drafts[0].id;
+        renderRapport();
+        return;
+      }
+      // Afficher un sélecteur de dossier
+      let html = '<div class="sec-title" style="margin-top:14px">Sélectionnez un dossier</div>';
+      if (!drafts.length) {
+        html += '<div class="empty"><i class="ph ph-note-pencil"></i><p>Aucun dossier avec rapport à compléter.</p></div>';
+      } else {
+        drafts.forEach(dos => {
+          html += `<div class="card" onclick="App.openReport(${dos.id})">
+            <div style="font-size:11px;font-weight:600;color:var(--accent)">${dos.num}</div>
+            <div style="font-weight:700;font-size:14px;margin:4px 0">${dos.client.lastName} ${dos.client.firstName}</div>
+            <div class="irow"><i class="ph ph-map-pin"></i><span>${dos.client.address}, ${dos.client.city}</span></div>
+            <button class="btn btn-accent btn-sm" style="margin-top:8px"><i class="ph ph-note-pencil"></i> Remplir le rapport</button>
+          </div>`;
+        });
+      }
+      // Aussi montrer les rapports déjà soumis
+      const submitted = myDossiers.filter(x => x.report.status === 'submitted');
+      if (submitted.length) {
+        html += '<div class="sec-title">Rapports soumis</div>';
+        submitted.forEach(dos => {
+          html += `<div class="card" onclick="App.openReportView(${dos.id})">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;font-weight:600;color:var(--accent)">${dos.num}</span>
+              <span class="badge badge-livraison">✅ Soumis</span>
+            </div>
+            <div style="font-weight:700;font-size:14px;margin-top:4px">${dos.client.lastName} ${dos.client.firstName}</div>
+          </div>`;
+        });
+      }
+      $('pgRapport').innerHTML = html;
       return;
     }
     const r = d.report;
@@ -872,46 +1348,110 @@ const App = (() => {
   }
 
   /* =============================================================
-     EMAIL (EmailJS)
+     EMAIL NOTIFICATIONS (EmailJS)
+     Types: new_activity, modified, cancelled, rapport
      ============================================================= */
-  function sendRapportEmail(d) {
-    const r = d.report;
-    const isDemo = STORE_CONFIG.emailJsPublicKey === 'YOUR_PUBLIC_KEY';
-    const summary = {
-      dossier: d.num, client: d.client.lastName + ' ' + d.client.firstName,
-      submittedAt: r.submittedAt, conformite: Object.entries(r.checks).filter(([k]) => !k.endsWith('Comment')).map(([k, v]) => `${k}: ${v ? '✅' : '❌'}`).join(', '),
-      problemes: r.problems.level === 'none' ? 'Aucun' : r.problems.detail,
-      sav: r.sav.needed ? r.sav.desc : 'Aucun'
-    };
+  const isEmailDemo = () => STORE_CONFIG.emailJsPublicKey === 'YOUR_PUBLIC_KEY';
 
-    if (isDemo) {
-      console.log('📧 EMAIL SIMULÉ — Rapport envoyé:', JSON.stringify(summary, null, 2));
-      showToast('Mode démo — email simulé ✓', 'info');
-      showToast(`📧 Copie → ${d.client.email}`, 'info');
-    } else {
-      try {
-        emailjs.init(STORE_CONFIG.emailJsPublicKey);
-        emailjs.send(STORE_CONFIG.emailJsServiceId, STORE_CONFIG.emailJsTemplateId, {
-          to_email: STORE_CONFIG.email,
-          client_email: d.client.email,
-          client_name: d.client.lastName + ' ' + d.client.firstName,
-          dossier_numero: d.num,
-          rapport_date: fmtDate(r.submittedAt),
-          conformite: summary.conformite,
-          problemes: summary.problemes,
-          sav: summary.sav
-        }).then(() => showToast('Email envoyé ✓')).catch(err => { console.error(err); showToast('Erreur envoi email', 'error'); });
-      } catch (e) { console.error(e); showToast('EmailJS non configuré', 'warning'); }
+  function _sendEmail(params) {
+    if (isEmailDemo()) return;
+    try {
+      emailjs.init(STORE_CONFIG.emailJsPublicKey);
+      emailjs.send(STORE_CONFIG.emailJsServiceId, STORE_CONFIG.emailJsTemplateId, params)
+        .then(() => showToast('Email envoyé ✓'))
+        .catch(err => { console.error('EmailJS error:', err); showToast('Erreur envoi email', 'error'); });
+    } catch (e) { console.error(e); }
+  }
+
+  function sendNotification(type, data) {
+    const CFG = STORE_CONFIG;
+    const act = data.activite;
+    const poseur = data.poseur;
+    const client = data.client;
+
+    if (type === 'new_activity' && act) {
+      // Email → Poseur
+      const poseurSubject = `Nouvelle ${act.type.toLowerCase()} assignée — ${client.lastName} ${client.firstName} — ${fmtDate(act.slot.start)}`;
+      const poseurBody = `Bonjour ${poseur ? poseur.prenom : ''},\n\nUne nouvelle activité vous a été assignée :\n\n📋 Type : ${act.type}\n👤 Client : ${client.lastName} ${client.firstName}\n📍 Adresse : ${client.address}, ${client.city}\n📞 Téléphone : ${client.phone}\n📅 Date : ${fmtDate(act.slot.start)}\n🕐 Horaire : ${fmtTime(act.slot.start)} → ${fmtTime(act.slot.end)}\n📁 Dossier : ${data.dossierNum || '—'}\n\nConnectez-vous à l'app pour voir le dossier complet.\n\n${CFG.name}`;
+
+      // Email → Client
+      const typeLabel = act.type === 'Pose' ? 'pose' : act.type === 'SAV' ? 'SAV' : 'livraison';
+      const clientSubject = `Votre ${typeLabel} est confirmé(e) — ${fmtDate(act.slot.start)}`;
+      const clientBody = `Bonjour ${client.firstName},\n\nVotre rendez-vous est confirmé :\n\n📋 Type : ${act.type}\n📅 Date : ${fmtDate(act.slot.start)}\n🕐 Horaire : ${fmtTime(act.slot.start)} → ${fmtTime(act.slot.end)}\n🔧 Technicien : ${poseur ? poseur.prenom + ' ' + poseur.nom : '—'}\n\nPour toute question, contactez-nous :\n📞 ${CFG.phone}\n📧 ${CFG.email}\n\nÀ bientôt,\n${CFG.name}\n${CFG.address}`;
+
+      if (isEmailDemo()) {
+        console.log('📧 EMAIL → POSEUR:', poseurSubject, '\n', poseurBody);
+        console.log('📧 EMAIL → CLIENT:', clientSubject, '\n', clientBody);
+        showToast('Mode démo — 2 emails simulés ✓', 'info');
+      } else {
+        _sendEmail({ to_email: poseur ? poseur.email : '', subject: poseurSubject, message: poseurBody });
+        if (data.clientEmail) _sendEmail({ to_email: data.clientEmail, subject: clientSubject, message: clientBody });
+      }
     }
+
+    if (type === 'modified' && act && data.oldSlot) {
+      const subject = `Votre rendez-vous a été modifié — ${CFG.name}`;
+      const body = `Bonjour ${client.firstName},\n\nVotre rendez-vous a été modifié :\n\n❌ Ancienne date : ${fmtDate(data.oldSlot.start)} ${fmtTime(data.oldSlot.start)} → ${fmtTime(data.oldSlot.end)}\n✅ Nouvelle date : ${fmtDate(act.slot.start)} ${fmtTime(act.slot.start)} → ${fmtTime(act.slot.end)}\n🔧 Technicien : ${poseur ? poseur.prenom + ' ' + poseur.nom : '—'}\n\n📞 ${CFG.phone}\n📧 ${CFG.email}\n\n${CFG.name}\n${CFG.address}`;
+
+      if (isEmailDemo()) {
+        console.log('📧 EMAIL MODIF → CLIENT:', subject, '\n', body);
+        showToast('Mode démo — email modif simulé ✓', 'info');
+      } else {
+        if (data.clientEmail) _sendEmail({ to_email: data.clientEmail, subject, message: body });
+      }
+    }
+
+    if (type === 'cancelled' && data.client) {
+      const subject = `Votre rendez-vous a été annulé — ${CFG.name}`;
+      const body = `Bonjour ${client.firstName},\n\nNous vous informons que votre rendez-vous du ${act ? fmtDate(act.slot.start) : ''} a été annulé.\n\nNous vous recontacterons rapidement pour fixer une nouvelle date.\n\n📞 ${CFG.phone}\n📧 ${CFG.email}\n\n${CFG.name}\n${CFG.address}`;
+
+      if (isEmailDemo()) {
+        console.log('📧 EMAIL ANNUL → CLIENT:', subject, '\n', body);
+        showToast('Mode démo — email annulation simulé ✓', 'info');
+      } else {
+        if (data.clientEmail) _sendEmail({ to_email: data.clientEmail, subject, message: body });
+      }
+    }
+
+    if (type === 'rapport' && data.dossier) {
+      const d = data.dossier;
+      const r = d.report;
+      const summary = {
+        dossier: d.num, client: d.client.lastName + ' ' + d.client.firstName,
+        submittedAt: r.submittedAt,
+        conformite: Object.entries(r.checks).filter(([k]) => !k.endsWith('Comment')).map(([k, v]) => `${k}: ${v ? '✅' : '❌'}`).join(', '),
+        problemes: r.problems.level === 'none' ? 'Aucun' : r.problems.detail,
+        sav: r.sav.needed ? r.sav.desc : 'Aucun'
+      };
+      const subject = `Rapport de pose — ${d.num} — ${d.client.lastName} ${d.client.firstName}`;
+      const body = `Rapport soumis le ${fmtDate(r.submittedAt)}.\n\nClient : ${d.client.lastName} ${d.client.firstName}\nConformité : ${summary.conformite}\nProblèmes : ${summary.problemes}\nSAV : ${summary.sav}`;
+
+      if (isEmailDemo()) {
+        console.log('📧 EMAIL RAPPORT:', JSON.stringify(summary, null, 2));
+        showToast('Mode démo — email rapport simulé ✓', 'info');
+        showToast(`📧 Copie → ${d.client.email}`, 'info');
+      } else {
+        _sendEmail({ to_email: CFG.email, subject, message: body });
+        if (d.client.email) _sendEmail({ to_email: d.client.email, subject: `Votre pose est terminée — ${CFG.name}`, message: body });
+      }
+    }
+  }
+
+  /* Legacy wrapper for rapport submission */
+  function sendRapportEmail(d) {
+    sendNotification('rapport', { dossier: d });
   }
 
   /* =============================================================
      PDF EXPORT
      ============================================================= */
   function renderPdfView() {
-    // Find submitted report
+    // Find submitted report — filter by poseur if needed
     let d = DOSSIERS.find(x => x.id === reportDosId && x.report.status === 'submitted');
-    if (!d) d = DOSSIERS.find(x => x.report.status === 'submitted');
+    if (!d) {
+      const pool = isMag() ? DOSSIERS : DOSSIERS.filter(x => x.poseurId === user.poseurId);
+      d = pool.find(x => x.report.status === 'submitted');
+    }
     if (!d) {
       $('pgPdf').innerHTML = '<div class="empty" style="margin-top:36px"><i class="ph ph-file-pdf"></i><p>Aucun rapport soumis disponible.</p></div>';
       return;
@@ -1210,6 +1750,9 @@ const App = (() => {
     quickLogin, logout, doLogin,
     // Nav
     nav, setSubTab,
+    // Calendar
+    calPrev, calNext, calToday, setCalView, setCalFilter, calGoDay,
+    openDayPanel, closeSide, openNewActivityAt, _setRadioType,
     // Activities
     openActDetail, markDone, openNewActivity, createActivity, reassign, openDossierFromAct,
     // Dossiers
@@ -1224,6 +1767,8 @@ const App = (() => {
     downloadPdf, resendEmail,
     // Poseurs
     togglePoseur, addPoseur, savePoseur,
+    // Email
+    sendNotification,
     // Utils
     openLB, closeLB, closeOv, showToast, save
   };

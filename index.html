@@ -91,6 +91,16 @@
     <!-- FAB -->
     <button class="fab" id="fab" onclick="App.openNewActivity()"><i class="ph ph-plus"></i></button>
 
+    <!-- Side panel (calendar day details) -->
+    <div class="side-panel-overlay" id="sideOverlay" onclick="App.closeSide()"></div>
+    <div class="side-panel" id="sidePanel">
+      <div class="side-panel-header">
+        <h3 id="sidePanelTitle"></h3>
+        <button class="side-panel-close" onclick="App.closeSide()"><i class="ph ph-x"></i></button>
+      </div>
+      <div id="sidePanelContent"></div>
+    </div>
+
     <!-- Bottom Nav -->
     <nav class="bnav" id="bnav">
       <button class="bnav-item mag-only" data-pg="dashboard" onclick="App.nav('dashboard')"><i class="ph ph-chart-bar"></i><span>Board</span></button>

@@ -308,6 +308,103 @@ select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csv
 @keyframes toastOut{to{opacity:0;transform:translateY(16px)}}
 
 /* =============================================================
+   CALENDAR
+   ============================================================= */
+
+/* Calendar toolbar */
+.cal-toolbar{display:flex;align-items:center;justify-content:space-between;padding:12px 0 8px;position:sticky;top:0;background:var(--bg);z-index:20}
+.cal-nav-group{display:flex;align-items:center;gap:6px}
+.cal-nav-btn{width:34px;height:34px;border-radius:50%;background:var(--white);display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);border:none;font-size:16px;color:var(--primary);transition:var(--tr)}
+.cal-nav-btn:active{transform:scale(.9)}
+.cal-title{font-family:'Poppins',sans-serif;font-size:15px;font-weight:700;min-width:140px;text-align:center}
+.cal-views{display:flex;gap:3px;background:var(--white);border-radius:10px;padding:3px;box-shadow:var(--shadow)}
+.cal-view-btn{padding:6px 10px;border-radius:8px;font-size:10px;font-weight:600;border:none;color:var(--text-light);transition:var(--tr);white-space:nowrap}
+.cal-view-btn.on{background:var(--primary);color:#fff}
+.cal-today-btn{padding:5px 10px;border-radius:8px;font-size:10px;font-weight:600;border:1.5px solid var(--accent);color:var(--accent);background:none;transition:var(--tr)}
+.cal-today-btn:active{background:var(--accent);color:#fff}
+
+/* Poseur filter (magasin) */
+.cal-poseur-filter{display:flex;gap:6px;padding:4px 0 10px;overflow-x:auto;scrollbar-width:none}
+.cal-poseur-filter::-webkit-scrollbar{display:none}
+.cal-pf-btn{display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:16px;font-size:10px;font-weight:600;border:1.5px solid var(--border);background:var(--white);color:var(--text-light);white-space:nowrap;transition:var(--tr);flex-shrink:0}
+.cal-pf-btn.on{border-color:var(--primary);background:var(--primary);color:#fff}
+.cal-pf-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* === MONTH VIEW === */
+.cal-month-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:10px;font-weight:600;color:var(--text-light);padding:4px 0}
+.cal-month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-day-cell{min-height:64px;background:var(--white);border-radius:6px;padding:3px;cursor:pointer;transition:var(--tr);position:relative;overflow:hidden}
+.cal-day-cell:active{transform:scale(.96)}
+.cal-day-cell.other{background:#f0f0f0;opacity:.5}
+.cal-day-cell.today{background:#fef2f2;box-shadow:inset 0 0 0 1.5px var(--accent)}
+.cal-day-num{font-size:11px;font-weight:600;text-align:right;padding:1px 3px;color:var(--text)}
+.cal-day-cell.today .cal-day-num{color:var(--accent);font-weight:700}
+.cal-day-cell.other .cal-day-num{color:#bbb}
+.cal-day-evt{display:flex;align-items:center;gap:2px;padding:1px 3px;border-radius:3px;font-size:8px;font-weight:600;color:#fff;margin-top:1px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:14px}
+.cal-day-evt.pose{background:var(--info)}
+.cal-day-evt.sav{background:var(--warning)}
+.cal-day-evt.livraison{background:var(--success)}
+.cal-day-evt.urgent{background:var(--danger)}
+.cal-day-more{font-size:8px;color:var(--text-light);text-align:center;margin-top:1px}
+
+/* === WEEK VIEW === */
+.cal-week-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100dvh - 240px);position:relative;-webkit-overflow-scrolling:touch}
+.cal-week-header{display:grid;position:sticky;top:0;z-index:5;background:var(--bg)}
+.cal-week-header .wh-cell{text-align:center;padding:6px 2px;font-size:9px;font-weight:600;color:var(--text-light);border-bottom:1px solid var(--border)}
+.cal-week-header .wh-cell.today{color:var(--accent);font-weight:700}
+.cal-week-header .wh-cell .wh-num{font-size:16px;font-weight:700;color:var(--text);display:block}
+.cal-week-header .wh-cell.today .wh-num{color:var(--accent)}
+.cal-week-body{display:grid;position:relative}
+.cal-hour-label{font-size:9px;color:var(--text-light);text-align:right;padding:0 4px;height:60px;display:flex;align-items:flex-start;justify-content:flex-end;border-right:1px solid var(--border)}
+.cal-hour-row{height:60px;border-bottom:1px solid #f0f0f0;position:relative}
+.cal-col{position:relative}
+.cal-week-block{position:absolute;left:2px;right:2px;border-radius:6px;padding:4px 5px;font-size:9px;font-weight:500;color:#fff;overflow:hidden;cursor:pointer;z-index:2;box-shadow:0 1px 3px rgba(0,0,0,.15);transition:var(--tr);line-height:1.3}
+.cal-week-block:active{transform:scale(.97);z-index:3}
+.cal-week-block.pose{background:var(--info)}
+.cal-week-block.sav{background:var(--warning)}
+.cal-week-block.livraison{background:var(--success)}
+.cal-week-block.urgent{background:var(--danger)}
+.cal-week-block .wb-client{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-week-block .wb-time{opacity:.85;font-size:8px}
+.cal-week-block .wb-poseur{position:absolute;bottom:3px;right:3px;width:18px;height:18px;border-radius:50%;font-size:7px;font-weight:700;display:flex;align-items:center;justify-content:center;border:1.5px solid rgba(255,255,255,.5)}
+.cal-week-block .wb-rapport{display:block;margin-top:2px;font-size:8px;background:rgba(255,255,255,.25);padding:1px 4px;border-radius:3px;text-align:center}
+.cal-now-line{position:absolute;left:0;right:0;height:2px;background:var(--danger);z-index:4;pointer-events:none}
+.cal-now-line::before{content:'';position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--danger)}
+.cal-week-block.half{width:48%}
+.cal-week-block.half.second{left:50%}
+
+/* === DAY VIEW === */
+.cal-day-summary{display:flex;gap:8px;padding:8px 0;font-size:11px;color:var(--text-light);flex-wrap:wrap}
+.cal-day-summary span{display:flex;align-items:center;gap:3px}
+.cal-day-wrap{overflow-y:auto;max-height:calc(100dvh - 280px);position:relative;-webkit-overflow-scrolling:touch}
+.cal-day-col{position:relative;margin-left:42px}
+.cal-day-hour{position:absolute;left:-42px;font-size:9px;color:var(--text-light);width:38px;text-align:right}
+.cal-day-block{position:absolute;left:4px;right:4px;border-radius:8px;padding:8px 10px;color:#fff;cursor:pointer;z-index:2;box-shadow:0 2px 6px rgba(0,0,0,.15);transition:var(--tr);overflow:hidden}
+.cal-day-block:active{transform:scale(.98)}
+.cal-day-block.pose{background:var(--info)}
+.cal-day-block.sav{background:var(--warning)}
+.cal-day-block.livraison{background:var(--success)}
+.cal-day-block.urgent{background:var(--danger)}
+.cal-day-block .db-client{font-weight:700;font-size:13px;margin-bottom:2px}
+.cal-day-block .db-addr{font-size:10px;opacity:.85;margin-bottom:2px}
+.cal-day-block .db-time{font-size:10px;opacity:.85}
+.cal-day-block .db-poseur{display:flex;align-items:center;gap:4px;font-size:10px;margin-top:4px}
+.cal-day-block .db-status{display:inline-flex;align-items:center;gap:3px;font-size:9px;margin-top:3px;background:rgba(255,255,255,.2);padding:2px 6px;border-radius:4px}
+.cal-day-block .db-actions{display:flex;gap:4px;margin-top:6px}
+.cal-day-block .db-actions button{padding:4px 8px;border-radius:5px;font-size:9px;font-weight:600;border:none;color:#fff;background:rgba(255,255,255,.25);cursor:pointer}
+
+/* === SIDE PANEL === */
+.side-panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:300;display:none}
+.side-panel-overlay.on{display:block}
+.side-panel{position:fixed;top:0;right:-100%;width:min(85vw,380px);height:100%;background:var(--white);z-index:301;transition:right .3s ease;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,.1);-webkit-overflow-scrolling:touch}
+.side-panel.on{right:0}
+.side-panel-header{display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--white);z-index:1}
+.side-panel-header h3{font-family:'Poppins',sans-serif;font-size:15px;font-weight:700}
+.side-panel-close{width:32px;height:32px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center;border:none;font-size:16px;color:var(--text)}
+#sidePanelContent{padding:12px 16px}
+#sidePanelContent .card{margin-bottom:8px}
+
+/* =============================================================
    PRINT
    ============================================================= */
 @media print{
